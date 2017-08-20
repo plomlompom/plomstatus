@@ -97,7 +97,10 @@ class HTTPHandler(BaseHTTPRequestHandler):
         def append_GET_params(url, dictionary):
             """Return as URL url with dictionary as GET parameters appended."""
             url = list(urllib.parse.urlparse(url))
-            url[4] = '?' if url[4] == '' else url[4] + '&'
+            if url[2] is '':
+                url[2] = '/'
+            if url[4] is not '':
+                url[4] = url[4] + '&'
             params = []
             for key in dictionary:
                 key_encoded = urllib.parse.quote(key)
@@ -151,7 +154,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
         code = res.getcode()
         if code == 404:
             return  # Subscriber disagrees.
-        elif code < 200 or code > 299 or res.read() != challenge:
+        elif code < 200 or code > 299 or res.read() != challenge.encode():
             return  # Verification failed.
 
         # Enact request.
@@ -169,7 +172,8 @@ class HTTPHandler(BaseHTTPRequestHandler):
         else:
             if subscription_id is None:
                 self.server.cursor.execute('INSERT INTO subscriptions '
-                                           '(topic, callback, secret, ends)',
+                                           '(topic, callback, secret, ends)'
+                                           'VALUES (?, ?, ?, ?)',
                                            (topic_id, callback, secret, ends))
             else:
                 self.server.cursor.execute('UPDATE subscriptions '

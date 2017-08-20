@@ -1,13 +1,20 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import urllib.parse
+
+
 server_address = ('127.0.0.1', 8001)
+
 
 class HTTPHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
+        qs = urllib.parse.parse_qs(self.path)
+        challenge = qs['hub.challenge'][0]
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(bytes('hi there', 'utf8'))
+        self.wfile.write(bytes(challenge, 'utf8'))
+
 
 # For some reason (maybe the re-binding of server_address that occurs in
 # HTTPServer's super-class TCPServer's __init__?) this must come before the
@@ -16,7 +23,6 @@ class HTTPHandler(BaseHTTPRequestHandler):
 # re-run. The details are still unclear.
 httpd = HTTPServer(server_address, HTTPHandler)
 
-import urllib.parse
 import urllib.request
 import urllib.error
 global server_address
