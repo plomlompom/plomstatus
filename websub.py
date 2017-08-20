@@ -149,7 +149,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
             for topic in topics:
                 if callback in topic:
                     del topic[callback]
-        subscriptions[topic][callback] = {'secret': secret, 'ends': deadline}
+        else:
+            subscriptions[topic][callback] = {'secret': secret,
+                                              'ends': deadline}
 
 #from socketserver import ThreadingMixIn
 #class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
