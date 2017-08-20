@@ -1,8 +1,14 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
-subscriptions = []
 server_address = ('127.0.0.1', 8000)
+
+
+class Server(HTTPServer):
+
+    def __init__(self, cursor, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cursor = cursor
 
 
 class HTTPHandler(BaseHTTPRequestHandler):
@@ -95,7 +101,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             params = []
             for key in dictionary:
                 key_encoded = urllib.parse.quote(key)
-                val_encoded = urllib.parse.quote(dictionary[key])
+                val_encoded = urllib.parse.quote(str(dictionary[key]))
                 params += [key_encoded + '=' + val_encoded]
             url[4] += '&'.join(params)
             return urllib.parse.urlunparse(url)
@@ -117,16 +123,20 @@ class HTTPHandler(BaseHTTPRequestHandler):
         callback, topic, mode, lease_seconds, secret = result
         lease_default = 10*60*60*24  # "10 days is a good default"
         if lease_seconds is None: lease_seconds = lease_default
-        deadline = now + datetime.timedelta(seconds = lease_seconds)
+        ends = now + datetime.timedelta(seconds = lease_seconds)
 
         # Validate subscription against available topics. 
-        if not topic in topics:
+        self.server.cursor.execute('SELECT id FROM topics WHERE url = ?',
+                                   (topic,))
+        result = self.server.cursor.fetchone()
+        if result is None:
             url = append_GET_params(callback, {'hub.topic': topic,
                                                'hub.mode': 'denied',
                                                'hub.reason': 'not found'})
             req = urllib.request.Request(url)  # Default method is GET.
             urllib.request.urlopen(req)
             return
+        topic_id = result[0]
 
         # Perform verification of intent.
         challenge_length = 100  # Arbitrary value, no recommendations by spec.
@@ -145,18 +155,56 @@ class HTTPHandler(BaseHTTPRequestHandler):
             return  # Verification failed.
 
         # Enact request.
+        self.server.cursor.execute('SELECT id FROM subscriptions WHERE '
+                                   'topic = ? AND callback = ?',
+                                   (topic_id, callback))
+        result = self.server.cursor.fetchone()
+        subscription_id = None
+        if result is not None:
+            subscription_id = result[0]
         if mode == 'unsubscribe':
-            for topic in subscriptions:
-                if callback in topic:
-                    del topic[callback]
+            if subscription_id is not None:
+                self.server.cursor.execute('DELETE FROM subscriptions '
+                                           'WHERE id = ?', (subscription_id,))
         else:
-            subscriptions[topic][callback] = {'secret': secret,
-                                              'ends': deadline}
+            if subscription_id is None:
+                self.server.cursor.execute('INSERT INTO subscriptions '
+                                           '(topic, callback, secret, ends)',
+                                           (topic_id, callback, secret, ends))
+            else:
+                self.server.cursor.execute('UPDATE subscriptions '
+                                           'SET secret = ?, ends = ? '
+                                           'WHERE id = ?',
+                                           (secret, ends, subscription_id))
+        self.server.cursor.connection.commit()
 
 #from socketserver import ThreadingMixIn
 #class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 #    """foo"""
 #httpd = ThreadedHTTPServer(server_address, HTTPHandler)
 
-httpd = HTTPServer(server_address, HTTPHandler)
+db_file = 'db.sqlite'
+import os.path
+import sqlite3
+create_new_DB = False
+if not (os.path.isfile(db_file)):
+    create_new_DB = True
+conn = sqlite3.connect(db_file)
+cursor = conn.cursor()
+if create_new_DB:
+    cursor.execute('CREATE TABLE topics ('
+                   'id INTEGER PRIMARY KEY UNIQUE, '
+                   'url TEXT UNIQUE)')
+    cursor.execute('CREATE TABLE subscriptions ('
+                   'id INTEGER PRIMARY KEY UNIQUE, '
+                   'topic INTEGER, '
+                   'callback TEXT UNIQUE, '
+                   'secret TEXT, '
+                   'ends TIMESTAMP, '
+                   'FOREIGN KEY (topic) REFERENCES topics(id))')
+    cursor.execute('INSERT INTO topics (url) VALUES (?)',
+                   ('http://baz.quux',))
+    cursor.connection.commit()
+
+httpd = Server(cursor, server_address, HTTPHandler)
 httpd.serve_forever()
