@@ -1,7 +1,7 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
-topics = []
+subscriptions = []
 server_address = ('127.0.0.1', 8000)
 
 
@@ -146,7 +146,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
 
         # Enact request.
         if mode == 'unsubscribe':
-            for topic in topics:
+            for topic in subscriptions:
                 if callback in topic:
                     del topic[callback]
         else:
